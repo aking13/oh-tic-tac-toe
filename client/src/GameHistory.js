@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from './contexts/AuthContext';
 
 // API URL - adjust if needed
 const API_URL = window.location.hostname === 'localhost' 
@@ -6,16 +7,18 @@ const API_URL = window.location.hostname === 'localhost'
   : '/api';
 
 const GameHistory = () => {
+  const { isAuthenticated } = useAuth();
   const [games, setGames] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
   const [gameDetails, setGameDetails] = useState(null);
+  const [filter, setFilter] = useState('all'); // 'all', 'my-games'
 
-  // Fetch game history on component mount
+  // Fetch game history on component mount and when filter changes
   useEffect(() => {
     fetchGameHistory();
-  }, []);
+  }, [filter]);
 
   // Fetch game history from the server
   const fetchGameHistory = async () => {
@@ -23,7 +26,13 @@ const GameHistory = () => {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`${API_URL}/games`);
+      const url = filter === 'my-games' && isAuthenticated 
+        ? `${API_URL}/user/games` 
+        : `${API_URL}/games`;
+      
+      const response = await fetch(url, {
+        credentials: 'include' // Include cookies for authentication
+      });
       
       if (!response.ok) {
         throw new Error('Failed to fetch game history');
@@ -118,7 +127,25 @@ const GameHistory = () => {
 
   return (
     <div className="game-history">
-      <h2>Game History</h2>
+      <div className="history-header">
+        <h2>Game History</h2>
+        {isAuthenticated && (
+          <div className="history-filters">
+            <button 
+              className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+              onClick={() => setFilter('all')}
+            >
+              All Games
+            </button>
+            <button 
+              className={`filter-btn ${filter === 'my-games' ? 'active' : ''}`}
+              onClick={() => setFilter('my-games')}
+            >
+              My Games
+            </button>
+          </div>
+        )}
+      </div>
       
       {error && <div className="error">{error}</div>}
       

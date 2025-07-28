@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import GameHistory from './GameHistory';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import AuthModal from './components/AuthModal';
+import UserProfile from './components/UserProfile';
 
 // API URL - adjust if needed
 const API_URL = window.location.hostname === 'localhost' 
@@ -288,8 +291,57 @@ const GameModeSelector = ({ gameMode, onModeChange }) => {
   );
 };
 
-// Main App component
-const App = () => {
+// Authentication UI Component
+const AuthUI = () => {
+  const { user, isAuthenticated, loading } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+
+  if (loading) return null;
+
+  return (
+    <>
+      {!isAuthenticated ? (
+        <>
+          <div className="guest-indicator">
+            Playing as Guest
+          </div>
+          <button 
+            className="auth-button"
+            onClick={() => setShowAuthModal(true)}
+          >
+            Sign In
+          </button>
+        </>
+      ) : (
+        <div className="user-menu">
+          <button 
+            className="user-menu-button"
+            onClick={() => setShowProfile(true)}
+          >
+            <div className="user-avatar">
+              {user.displayName ? user.displayName[0].toUpperCase() : user.username[0].toUpperCase()}
+            </div>
+            {user.displayName || user.username}
+          </button>
+        </div>
+      )}
+      
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)} 
+      />
+      
+      <UserProfile 
+        isOpen={showProfile} 
+        onClose={() => setShowProfile(false)} 
+      />
+    </>
+  );
+};
+
+// Main Game Component
+const GameComponent = () => {
   // Initialize state for the board (9 squares)
   const [squares, setSquares] = useState(Array(9).fill(null));
   // Track whose turn it is (X starts)
@@ -766,6 +818,7 @@ const App = () => {
 
   return (
     <div className="game">
+      <AuthUI />
       <h1>Tic Tac Toe</h1>
       
       <div className="left-panel">
@@ -835,6 +888,15 @@ const App = () => {
         <GameHistory />
       )}
     </div>
+  );
+};
+
+// Main App wrapper with AuthProvider
+const App = () => {
+  return (
+    <AuthProvider>
+      <GameComponent />
+    </AuthProvider>
   );
 };
 

@@ -7,14 +7,16 @@ const { db } = require('../db');
  */
 function saveGame(gameData) {
   const stmt = db.prepare(`
-    INSERT INTO games (game_mode, player_x, player_o, winner, is_draw, completed_at)
-    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO games (game_mode, player_x, player_o, player_x_user_id, player_o_user_id, winner, is_draw, completed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `);
   
   const result = stmt.run(
     gameData.gameMode,
     gameData.playerX,
     gameData.playerO,
+    gameData.playerXUserId || null,
+    gameData.playerOUserId || null,
     gameData.winner,
     gameData.isDraw ? 1 : 0
   );

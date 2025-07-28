@@ -8,6 +8,9 @@
     "start-server": "cd server && npm start",
     "start": "npm run build && npm run start-server"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "author": "",
   "license": "ISC"
 }

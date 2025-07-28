@@ -276,7 +276,7 @@ const App = () => {
   } else if (squares.every(square => square !== null)) {
     status = 'Draw!';
   } else if (aiThinking || isLoading) {
-    status = 'Thinking...';
+    status = 'AI Thinking...';
   } else {
     if (gameMode === 'easy' || gameMode === 'hard') {
       status = xIsNext ? 'Your Turn (X)' : 'AI Turn (O)';

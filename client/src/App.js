@@ -315,8 +315,11 @@ const App = () => {
 
   // Handle click on a square
   const handleClick = async (i) => {
-    // Don't allow clicks if AI is thinking or loading
-    if (aiThinking || isLoading) {
+    // Check if there's already a winner
+    const currentWinner = calculateWinner(squares);
+    
+    // Don't allow clicks if game is over, AI is thinking or loading
+    if (currentWinner || squares.every(square => square !== null) || aiThinking || isLoading) {
       return;
     }
     
@@ -737,6 +740,8 @@ const App = () => {
               squares={squares} 
               onClick={handleClick} 
               disabled={
+                winner !== null ||
+                squares.every(square => square !== null) ||
                 aiThinking || 
                 isLoading || 
                 ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext) ||

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
+import GameHistory from './GameHistory';
 
 // API URL - adjust if needed
 const API_URL = window.location.hostname === 'localhost' 
@@ -303,6 +304,10 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(false);
   // Track scores
   const [scores, setScores] = useState({ X: 0, O: 0, draws: 0 });
+  // Track move count for the current game
+  const [moveCount, setMoveCount] = useState(0);
+  // Track current game ID if saved
+  const [currentGameId, setCurrentGameId] = useState(null);
   
   // Online multiplayer state
   const [socket, setSocket] = useState(null);
@@ -366,6 +371,10 @@ const App = () => {
       setIsLoading(true);
       setError(null);
       
+      // Increment move count
+      const nextMoveCount = moveCount + 1;
+      setMoveCount(nextMoveCount);
+      
       // Make API call to validate and make the move
       const response = await fetch(`${API_URL}/make-move`, {
         method: 'POST',
@@ -375,7 +384,9 @@ const App = () => {
         body: JSON.stringify({
           squares: newSquares,
           index: i,
-          player: xIsNext ? 'X' : 'O'
+          player: xIsNext ? 'X' : 'O',
+          gameMode: gameMode,
+          moveNumber: nextMoveCount
         }),
       });
       
@@ -389,6 +400,11 @@ const App = () => {
       // Update state with validated move
       setSquares(data.squares);
       setXIsNext(!xIsNext);
+      
+      // If game is complete and saved, store the game ID
+      if (data.gameId) {
+        setCurrentGameId(data.gameId);
+      }
     } catch (err) {
       setError(err.message);
       console.error('Error making move:', err);
@@ -508,12 +524,24 @@ const App = () => {
       setSquares(data.gameState.squares);
       setXIsNext(data.gameState.xIsNext);
       setError(null);
+      
+      // Update move count if provided
+      if (data.lastMove && data.lastMove.moveNumber) {
+        setMoveCount(data.lastMove.moveNumber);
+      }
+      
+      // If game is complete and saved, store the game ID
+      if (data.gameId) {
+        setCurrentGameId(data.gameId);
+      }
     });
     
     newSocket.on('game-reset', (data) => {
       setSquares(data.gameState.squares);
       setXIsNext(data.gameState.xIsNext);
       setError(null);
+      setMoveCount(0);
+      setCurrentGameId(null);
     });
     
     newSocket.on('player-left', (data) => {
@@ -606,6 +634,8 @@ const App = () => {
       setError(null);
       setIsLoading(false);
       setScoreUpdated(false);
+      setMoveCount(0);
+      setCurrentGameId(null);
     }
   };
 
@@ -710,6 +740,9 @@ const App = () => {
     }
   }
 
+  // State to toggle game history view
+  const [showHistory, setShowHistory] = useState(false);
+
   return (
     <div className="game">
       <h1>Tic Tac Toe</h1>
@@ -719,6 +752,13 @@ const App = () => {
         {(gameMode !== 'online' || (gameMode === 'online' && isInRoom)) && (
           <ScoreTracker scores={scores} />
         )}
+        <button 
+          className="primary-button" 
+          style={{ marginTop: '1rem' }}
+          onClick={() => setShowHistory(!showHistory)}
+        >
+          {showHistory ? 'Hide History' : 'Show History'}
+        </button>
       </div>
       
       <div className="game-content">
@@ -769,6 +809,10 @@ const App = () => {
           />
         )}
       </div>
+      
+      {showHistory && (
+        <GameHistory />
+      )}
     </div>
   );
 };

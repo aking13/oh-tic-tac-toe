@@ -4,6 +4,10 @@ const cors = require('cors');
 const http = require('http');
 const socketIo = require('socket.io');
 
+// Import database modules
+const { initializeDatabase } = require('./db');
+const gameRepository = require('./repositories/gameRepository');
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
@@ -14,6 +18,9 @@ const io = socketIo(server, {
 });
 const PORT = process.env.PORT || 12000;
 
+// Initialize database
+initializeDatabase();
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -21,6 +28,35 @@ app.use(express.json());
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// Game history endpoints
+app.get('/api/games', (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const games = gameRepository.getGameHistory(limit);
+    res.json({ games });
+  } catch (error) {
+    console.error('Error fetching game history:', error);
+    res.status(500).json({ error: 'Failed to fetch game history' });
+  }
+});
+
+app.get('/api/games/:id', (req, res) => {
+  try {
+    const gameId = parseInt(req.params.id);
+    const game = gameRepository.getGameById(gameId);
+    
+    if (!game) {
+      return res.status(404).json({ error: 'Game not found' });
+    }
+    
+    const moves = gameRepository.getGameMoves(gameId);
+    res.json({ game, moves });
+  } catch (error) {
+    console.error('Error fetching game details:', error);
+    res.status(500).json({ error: 'Failed to fetch game details' });
+  }
 });
 
 // Game logic functions
@@ -288,6 +324,13 @@ io.on('connection', (socket) => {
     const winner = calculateWinner(newSquares);
     const isDraw = !winner && !newSquares.includes(null);
     
+    // Track move number
+    if (!room.moveCount) {
+      room.moveCount = 1;
+    } else {
+      room.moveCount++;
+    }
+    
     room.gameState = {
       squares: newSquares,
       xIsNext: !room.gameState.xIsNext,
@@ -297,14 +340,47 @@ io.on('connection', (socket) => {
     
     room.lastActivity = new Date();
     
+    // If game is complete (has winner or is draw), save to database
+    let gameId = null;
+    if (winner || isDraw) {
+      try {
+        // Save the completed game
+        gameId = gameRepository.saveGame({
+          gameMode: 'online',
+          playerX: room.players.find(p => p.symbol === 'X')?.name || 'Player X',
+          playerO: room.players.find(p => p.symbol === 'O')?.name || 'Player O',
+          winner: winner || null,
+          isDraw: isDraw
+        });
+        
+        // Save all moves if we have a game ID
+        if (gameId) {
+          // Save the current move
+          gameRepository.saveMove({
+            gameId,
+            playerSymbol: player.symbol,
+            position: index,
+            moveNumber: room.moveCount
+          });
+          
+          // Store game ID in room for potential future use
+          room.gameId = gameId;
+        }
+      } catch (error) {
+        console.error('Error saving multiplayer game:', error);
+      }
+    }
+    
     // Broadcast the updated game state to all players in the room
     io.to(room.code).emit('game-updated', {
       gameState: room.gameState,
       lastMove: {
         player: player.name,
         symbol: player.symbol,
-        index
-      }
+        index,
+        moveNumber: room.moveCount
+      },
+      gameId // Include the game ID if it was saved
     });
     
     console.log(`Move made in room ${room.code} by ${player.name}`);
@@ -408,7 +484,7 @@ app.post('/api/ai-move', (req, res) => {
 
 // API endpoint for making a move
 app.post('/api/make-move', (req, res) => {
-  const { squares, index, player } = req.body;
+  const { squares, index, player, gameMode, moveNumber } = req.body;
   
   // Validate request body
   if (!squares || !Array.isArray(squares) || squares.length !== 9) {
@@ -434,12 +510,43 @@ app.post('/api/make-move', (req, res) => {
   
   // Check for winner
   const winner = calculateWinner(newSquares);
+  const isDraw = !winner && !newSquares.includes(null);
+  
+  // If game is complete (has winner or is draw) and gameMode is provided, save to database
+  let gameId = null;
+  if ((winner || isDraw) && gameMode) {
+    try {
+      // Save the completed game
+      gameId = gameRepository.saveGame({
+        gameMode,
+        playerX: 'Player 1', // In a real app, this would be the actual player name
+        playerO: gameMode === 'easy' || gameMode === 'hard' ? 'AI' : 'Player 2',
+        winner: winner || null,
+        isDraw: isDraw
+      });
+      
+      // If we have move history, save all moves
+      if (moveNumber !== undefined && gameId) {
+        // Save the current move
+        gameRepository.saveMove({
+          gameId,
+          playerSymbol: player,
+          position: index,
+          moveNumber: moveNumber
+        });
+      }
+    } catch (error) {
+      console.error('Error saving game:', error);
+      // Continue with the response even if saving fails
+    }
+  }
   
   // Return updated board and game status
   res.json({
     squares: newSquares,
     winner,
-    isDraw: !winner && !newSquares.includes(null)
+    isDraw,
+    gameId // Include the game ID if it was saved
   });
 });
 

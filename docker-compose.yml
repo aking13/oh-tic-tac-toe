@@ -1,0 +1,15 @@
+services:
+  tic-tac-toe:
+    build: .
+    ports:
+      - "12000:12000"
+    environment:
+      - PORT=12000
+      - NODE_ENV=production
+    # Uncomment the following lines for development with hot reload
+    # volumes:
+    #   - ./server:/app/server
+    #   - ./client:/app/client
+    #   - /app/node_modules
+    #   - /app/server/node_modules
+    #   - /app/client/node_modules

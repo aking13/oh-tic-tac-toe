@@ -8,7 +8,7 @@ A simple full-stack tic-tac-toe game with Express server and React frontend.
 ## Technical Assessment Reflections
 
 **Instructions for running the app**
-See above :D
+See below :D
 
 **A brief description of your approach**
 I knew I wanted to be able to hand over a public link to my work so my approach was to use typescript, react, express and render since I have familiarity with working quickly with those tools. From there my though process was to work incrementally with the most important goal being to get something simple and full stack working and deployable ASAP. Once I had something deployable, I continued from there trying to add more fun features and explore persistance and even some initial docker deployment support. So far the app has, 'easy AI' 'hard AI' and online multiplayer rooms supported by Socket IO, and sqllite persistance which I think are cool features.

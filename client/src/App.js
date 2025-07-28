@@ -647,17 +647,6 @@ const App = () => {
         />
       )}
       
-      {gameMode === 'online' && isInRoom && (
-        <RoomInfo 
-          roomCode={roomCode}
-          roomName={roomName}
-          players={players}
-          currentPlayer={currentPlayer}
-          onLeaveRoom={handleLeaveRoom}
-          onCopyRoomCode={handleCopyRoomCode}
-        />
-      )}
-      
       {(gameMode !== 'online' || (gameMode === 'online' && isInRoom)) && (
         <>
           <div className={`status ${error ? 'error' : ''}`}>{status}</div>
@@ -677,6 +666,17 @@ const App = () => {
             {gameMode === 'online' ? 'Reset Game' : 'Reset Game'}
           </button>
         </>
+      )}
+      
+      {gameMode === 'online' && isInRoom && (
+        <RoomInfo 
+          roomCode={roomCode}
+          roomName={roomName}
+          players={players}
+          currentPlayer={currentPlayer}
+          onLeaveRoom={handleLeaveRoom}
+          onCopyRoomCode={handleCopyRoomCode}
+        />
       )}
     </div>
   );

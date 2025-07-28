@@ -22,7 +22,7 @@ const Board = ({ squares, onClick, disabled }) => {
           key={index} 
           value={value} 
           onClick={() => onClick(index)}
-          disabled={disabled}
+          disabled={disabled && !value}
         />
       ))}
     </div>

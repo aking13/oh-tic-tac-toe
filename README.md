@@ -4,12 +4,26 @@ A simple full-stack tic-tac-toe game with Express server and React frontend.
 
 > **Note**: This repository is configured for automatic deployment to Render from the main branch. For Docker deployment support, check out the `support-docker` branch.
 
-## Features
 
-- Express server with health check endpoint
-- React frontend with a 3x3 clickable grid
-- Full game logic implementation
-- Responsive design
+## Technical Assessment Reflections
+
+**Instructions for running the app**
+See above :D
+
+**A brief description of your approach**
+I knew I wanted to be able to hand over a public link to my work so my approach was to use typescript, react, express and render since I have familiarity with working quickly with those tools. From there my though process was to work incrementally with the most important goal being to get something simple and full stack working and deployable ASAP. Once I had something deployable, I continued from there trying to add more fun features and explore persistance and even some initial docker deployment support. So far the app has, 'easy AI' 'hard AI' and online multiplayer rooms supported by Socket IO, and sqllite persistance which I think are cool features.
+
+**What AI tools you used and how**
+I used Openhands CLI and Openhands Cloud ui. My goal there was to dogfood as much as possible so I can come into a review interview with what I hope are genuine and valuable thoughts and feedback not only on my approach but also the product and any bugs I may run into or delightful moments.
+
+**Anything that didn’t go as planned or you'd improve with more time**
+If I had more time I'd add fun features like user auth, Elo scores, and other things like that. Also I realized I could run multiple workstreams in parallel, so I'd try to do that even more in the future if I had more time (although there's different some management to be hand with 'live' kicking off workstreams to attempt to minimize merge conflicts)
+
+**Development Video**
+https://www.loom.com/share/c6dcb5f5a86e43389bd010c34e159fac?sid=bf188116-c252-4d4d-aed4-4deba7d7b7c8
+
+**Live App on Render**
+https://oh-tic-tac-toe.onrender.com/
 
 ## Local Development
 

@@ -85,9 +85,21 @@ function calculateWinner(squares) {
   return null; // No winner
 }
 
-// Hard AI algorithm - plays optimally
+// Hard AI algorithm - plays mostly optimally with occasional mistakes
 function getHardAiMove(squares) {
-  // Check if AI can win
+  // 15% chance to make a random move (mistake)
+  const mistakeChance = 0.15;
+  if (Math.random() < mistakeChance) {
+    const emptySquares = squares
+      .map((square, index) => square === null ? index : null)
+      .filter(val => val !== null);
+    
+    if (emptySquares.length > 0) {
+      return emptySquares[Math.floor(Math.random() * emptySquares.length)];
+    }
+  }
+  
+  // Check if AI can win - always take winning moves
   for (let i = 0; i < 9; i++) {
     if (squares[i] === null) {
       const testSquares = [...squares];
@@ -98,13 +110,17 @@ function getHardAiMove(squares) {
     }
   }
   
-  // Check if AI needs to block player from winning
-  for (let i = 0; i < 9; i++) {
-    if (squares[i] === null) {
-      const testSquares = [...squares];
-      testSquares[i] = 'X';
-      if (calculateWinner(testSquares) === 'X') {
-        return i;
+  // Check if AI needs to block player from winning - usually block, but not always
+  // 10% chance to miss a block (making it more beatable)
+  const missBlockChance = 0.10;
+  if (Math.random() >= missBlockChance) {
+    for (let i = 0; i < 9; i++) {
+      if (squares[i] === null) {
+        const testSquares = [...squares];
+        testSquares[i] = 'X';
+        if (calculateWinner(testSquares) === 'X') {
+          return i;
+        }
       }
     }
   }

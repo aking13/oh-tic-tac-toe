@@ -1,9 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
 
 // API URL - adjust if needed
 const API_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:12000/api' 
   : '/api';
+
+// Socket URL
+const SOCKET_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:12000' 
+  : window.location.origin;
 
 // Square component for each cell in the grid
 const Square = ({ value, onClick, disabled }) => {
@@ -30,6 +36,157 @@ const Board = ({ squares, onClick, disabled }) => {
           disabled={disabled && !value}
         />
       ))}
+    </div>
+  );
+};
+
+// Room Setup component for online multiplayer
+const RoomSetup = ({ onCreateRoom, onJoinRoom, isLoading }) => {
+  const [playerName, setPlayerName] = useState('');
+  const [roomName, setRoomName] = useState('');
+  const [roomCode, setRoomCode] = useState('');
+  const [showJoinForm, setShowJoinForm] = useState(false);
+
+  const handleCreateRoom = (e) => {
+    e.preventDefault();
+    if (!playerName.trim()) {
+      alert('Please enter your name');
+      return;
+    }
+    onCreateRoom({
+      playerName: playerName.trim(),
+      roomName: roomName.trim() || null
+    });
+  };
+
+  const handleJoinRoom = (e) => {
+    e.preventDefault();
+    if (!playerName.trim()) {
+      alert('Please enter your name');
+      return;
+    }
+    if (!roomCode.trim()) {
+      alert('Please enter a room code');
+      return;
+    }
+    onJoinRoom({
+      playerName: playerName.trim(),
+      roomCode: roomCode.trim().toUpperCase()
+    });
+  };
+
+  return (
+    <div className="room-setup">
+      <h3>Online Multiplayer</h3>
+      
+      <div className="player-name-input">
+        <label>
+          Your Name:
+          <input
+            type="text"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+            placeholder="Enter your name"
+            maxLength={20}
+            disabled={isLoading}
+          />
+        </label>
+      </div>
+
+      {!showJoinForm ? (
+        <div className="room-options">
+          <form onSubmit={handleCreateRoom} className="create-room-form">
+            <label>
+              Room Name (optional):
+              <input
+                type="text"
+                value={roomName}
+                onChange={(e) => setRoomName(e.target.value)}
+                placeholder="My Awesome Game"
+                maxLength={30}
+                disabled={isLoading}
+              />
+            </label>
+            <button type="submit" disabled={isLoading}>
+              {isLoading ? 'Creating...' : 'Create Room'}
+            </button>
+          </form>
+          
+          <div className="or-divider">or</div>
+          
+          <button 
+            onClick={() => setShowJoinForm(true)}
+            className="join-room-button"
+            disabled={isLoading}
+          >
+            Join Existing Room
+          </button>
+        </div>
+      ) : (
+        <div className="join-room-form">
+          <form onSubmit={handleJoinRoom}>
+            <label>
+              Room Code:
+              <input
+                type="text"
+                value={roomCode}
+                onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                placeholder="BLUE42"
+                maxLength={10}
+                disabled={isLoading}
+              />
+            </label>
+            <div className="form-buttons">
+              <button type="submit" disabled={isLoading}>
+                {isLoading ? 'Joining...' : 'Join Room'}
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setShowJoinForm(false)}
+                disabled={isLoading}
+              >
+                Back
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Room Info component
+const RoomInfo = ({ roomCode, roomName, players, currentPlayer, onLeaveRoom, onCopyRoomCode }) => {
+  return (
+    <div className="room-info">
+      <div className="room-details">
+        <h3>{roomName}</h3>
+        <div className="room-code">
+          Room Code: <strong>{roomCode}</strong>
+          <button onClick={onCopyRoomCode} className="copy-button">
+            Copy
+          </button>
+        </div>
+      </div>
+      
+      <div className="players-info">
+        <h4>Players ({players.length}/2):</h4>
+        <ul>
+          {players.map((player, index) => (
+            <li key={player.id} className={player.id === currentPlayer?.id ? 'current-player' : ''}>
+              {player.name} ({player.symbol})
+              {player.id === currentPlayer?.id && ' (You)'}
+            </li>
+          ))}
+        </ul>
+        {players.length < 2 && (
+          <p className="waiting-message">Waiting for another player to join...</p>
+        )}
+      </div>
+      
+      <button onClick={onLeaveRoom} className="leave-room-button">
+        Leave Room
+      </button>
     </div>
   );
 };
@@ -67,6 +224,15 @@ const GameModeSelector = ({ gameMode, onModeChange }) => {
           />
           Hard AI
         </label>
+        <label className="mode-option">
+          <input
+            type="radio"
+            value="online"
+            checked={gameMode === 'online'}
+            onChange={(e) => onModeChange(e.target.value)}
+          />
+          Online Multiplayer
+        </label>
       </div>
     </div>
   );
@@ -86,11 +252,46 @@ const App = () => {
   const [error, setError] = useState(null);
   // Track loading state
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Online multiplayer state
+  const [socket, setSocket] = useState(null);
+  const [roomCode, setRoomCode] = useState(null);
+  const [roomName, setRoomName] = useState(null);
+  const [players, setPlayers] = useState([]);
+  const [currentPlayer, setCurrentPlayer] = useState(null);
+  const [isInRoom, setIsInRoom] = useState(false);
+  const socketRef = useRef(null);
 
   // Handle click on a square
   const handleClick = async (i) => {
     // Don't allow clicks if AI is thinking or loading
     if (aiThinking || isLoading) {
+      return;
+    }
+    
+    // Handle online multiplayer moves
+    if (gameMode === 'online') {
+      if (!socketRef.current || !roomCode) {
+        setError('Not connected to room');
+        return;
+      }
+      
+      // Check if it's the player's turn
+      const expectedSymbol = xIsNext ? 'X' : 'O';
+      if (!currentPlayer || currentPlayer.symbol !== expectedSymbol) {
+        return; // Not your turn
+      }
+      
+      // Check if square is already filled
+      if (squares[i]) {
+        return;
+      }
+      
+      // Send move to server via socket
+      socketRef.current.emit('make-move', {
+        roomCode,
+        index: i
+      });
       return;
     }
     
@@ -208,6 +409,118 @@ const App = () => {
     }
   };
 
+  // Socket.IO connection management
+  const connectSocket = () => {
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+    
+    const newSocket = io(SOCKET_URL);
+    socketRef.current = newSocket;
+    setSocket(newSocket);
+    
+    // Socket event handlers
+    newSocket.on('room-created', (data) => {
+      setRoomCode(data.roomCode);
+      setRoomName(data.roomName);
+      setCurrentPlayer(data.player);
+      setPlayers(data.players || [data.player]);
+      setSquares(data.gameState.squares);
+      setXIsNext(data.gameState.xIsNext);
+      setIsInRoom(true);
+      setIsLoading(false);
+      setError(null);
+    });
+    
+    newSocket.on('room-joined', (data) => {
+      setRoomCode(data.roomCode);
+      setRoomName(data.roomName);
+      setCurrentPlayer(data.player);
+      setPlayers(data.players || [data.player]);
+      setSquares(data.gameState.squares);
+      setXIsNext(data.gameState.xIsNext);
+      setIsInRoom(true);
+      setIsLoading(false);
+      setError(null);
+    });
+    
+    newSocket.on('player-joined', (data) => {
+      setPlayers(data.players || []);
+      setSquares(data.gameState.squares);
+      setXIsNext(data.gameState.xIsNext);
+    });
+    
+    newSocket.on('game-updated', (data) => {
+      setSquares(data.gameState.squares);
+      setXIsNext(data.gameState.xIsNext);
+      setError(null);
+    });
+    
+    newSocket.on('game-reset', (data) => {
+      setSquares(data.gameState.squares);
+      setXIsNext(data.gameState.xIsNext);
+      setError(null);
+    });
+    
+    newSocket.on('player-left', (data) => {
+      setPlayers(prev => prev.filter(p => p.id !== data.player.id));
+      setError(`${data.player.name} left the room`);
+    });
+    
+    newSocket.on('error', (data) => {
+      setError(data.message);
+      setIsLoading(false);
+    });
+    
+    return newSocket;
+  };
+  
+  // Online multiplayer functions
+  const handleCreateRoom = (data) => {
+    setIsLoading(true);
+    setError(null);
+    const socket = connectSocket();
+    socket.emit('create-room', data);
+  };
+  
+  const handleJoinRoom = (data) => {
+    setIsLoading(true);
+    setError(null);
+    const socket = connectSocket();
+    socket.emit('join-room', data);
+  };
+  
+  const handleLeaveRoom = () => {
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+    setSocket(null);
+    setRoomCode(null);
+    setRoomName(null);
+    setPlayers([]);
+    setCurrentPlayer(null);
+    setIsInRoom(false);
+    resetGame();
+  };
+  
+  const handleCopyRoomCode = () => {
+    if (roomCode) {
+      navigator.clipboard.writeText(roomCode).then(() => {
+        // Could add a toast notification here
+        alert('Room code copied to clipboard!');
+      }).catch(() => {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = roomCode;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        alert('Room code copied to clipboard!');
+      });
+    }
+  };
+
   // Effect to trigger AI moves
   useEffect(() => {
     if ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext && !aiThinking && !isLoading) {
@@ -218,20 +531,39 @@ const App = () => {
       }
     }
   }, [gameMode, xIsNext, squares, aiThinking, isLoading]);
+  
+  // Cleanup socket on unmount
+  useEffect(() => {
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, []);
 
   // Reset the game
   const resetGame = () => {
-    setSquares(Array(9).fill(null));
-    setXIsNext(true);
-    setAiThinking(false);
-    setError(null);
-    setIsLoading(false);
+    if (gameMode === 'online' && socketRef.current && roomCode) {
+      socketRef.current.emit('reset-game', { roomCode });
+    } else {
+      setSquares(Array(9).fill(null));
+      setXIsNext(true);
+      setAiThinking(false);
+      setError(null);
+      setIsLoading(false);
+    }
   };
 
   // Handle game mode change
   const handleModeChange = (mode) => {
+    // If leaving online mode, disconnect from room
+    if (gameMode === 'online' && mode !== 'online') {
+      handleLeaveRoom();
+    }
     setGameMode(mode);
-    resetGame();
+    if (mode !== 'online') {
+      resetGame();
+    }
   };
 
   // Calculate the winner (client-side for UI purposes)
@@ -270,16 +602,33 @@ const App = () => {
   } else if (winner) {
     if (gameMode === 'easy' || gameMode === 'hard') {
       status = winner === 'X' ? 'You Win!' : 'AI Wins!';
+    } else if (gameMode === 'online' && currentPlayer) {
+      status = winner === currentPlayer.symbol ? 'You Win!' : 'You Lose!';
     } else {
       status = `Winner: ${winner}`;
     }
   } else if (squares.every(square => square !== null)) {
     status = 'Draw!';
   } else if (aiThinking || isLoading) {
-    status = 'AI Thinking...';
+    if (gameMode === 'online') {
+      status = 'Connecting...';
+    } else {
+      status = 'AI Thinking...';
+    }
   } else {
     if (gameMode === 'easy' || gameMode === 'hard') {
       status = xIsNext ? 'Your Turn (X)' : 'AI Turn (O)';
+    } else if (gameMode === 'online') {
+      if (!isInRoom) {
+        status = 'Select Create Room or Join Room';
+      } else if (players.length < 2) {
+        status = 'Waiting for another player...';
+      } else if (currentPlayer) {
+        const isMyTurn = (xIsNext && currentPlayer.symbol === 'X') || (!xIsNext && currentPlayer.symbol === 'O');
+        status = isMyTurn ? `Your Turn (${currentPlayer.symbol})` : `Opponent's Turn`;
+      } else {
+        status = 'Connecting...';
+      }
     } else {
       status = `Next player: ${xIsNext ? 'X' : 'O'}`;
     }
@@ -289,15 +638,46 @@ const App = () => {
     <div className="game">
       <h1>Tic Tac Toe</h1>
       <GameModeSelector gameMode={gameMode} onModeChange={handleModeChange} />
-      <div className={`status ${error ? 'error' : ''}`}>{status}</div>
-      <Board 
-        squares={squares} 
-        onClick={handleClick} 
-        disabled={aiThinking || isLoading || ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext)}
-      />
-      <button className="reset-button" onClick={resetGame}>
-        Reset Game
-      </button>
+      
+      {gameMode === 'online' && !isInRoom && (
+        <RoomSetup 
+          onCreateRoom={handleCreateRoom}
+          onJoinRoom={handleJoinRoom}
+          isLoading={isLoading}
+        />
+      )}
+      
+      {(gameMode !== 'online' || (gameMode === 'online' && isInRoom)) && (
+        <>
+          <div className={`status ${error ? 'error' : ''}`}>{status}</div>
+          <Board 
+            squares={squares} 
+            onClick={handleClick} 
+            disabled={
+              aiThinking || 
+              isLoading || 
+              ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext) ||
+              (gameMode === 'online' && (!currentPlayer || players.length < 2 || 
+                (xIsNext && currentPlayer.symbol !== 'X') || 
+                (!xIsNext && currentPlayer.symbol !== 'O')))
+            }
+          />
+          <button className="reset-button" onClick={resetGame}>
+            {gameMode === 'online' ? 'Reset Game' : 'Reset Game'}
+          </button>
+        </>
+      )}
+      
+      {gameMode === 'online' && isInRoom && (
+        <RoomInfo 
+          roomCode={roomCode}
+          roomName={roomName}
+          players={players}
+          currentPlayer={currentPlayer}
+          onLeaveRoom={handleLeaveRoom}
+          onCopyRoomCode={handleCopyRoomCode}
+        />
+      )}
     </div>
   );
 };

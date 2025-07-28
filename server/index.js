@@ -3,31 +3,245 @@ const path = require('path');
 const cors = require('cors');
 const http = require('http');
 const socketIo = require('socket.io');
+const session = require('express-session');
+const SQLiteStore = require('connect-sqlite3')(session);
 
 // Import database modules
 const { initializeDatabase } = require('./db');
 const gameRepository = require('./repositories/gameRepository');
+const userRepository = require('./repositories/userRepository');
+
+// Import middleware
+const { optionalAuth, requireAuth, validateRegistration, validateLogin } = require('./middleware/auth');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
+
+// Share session with socket.io
+const sessionMiddleware = session({
+  store: new SQLiteStore({
+    db: 'sessions.db',
+    dir: path.join(__dirname, 'data')
+  }),
+  secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false,
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000
+  }
+});
+
+// Use session middleware for socket.io
+io.use((socket, next) => {
+  sessionMiddleware(socket.request, {}, next);
+});
+
+// Helper function to get user from socket session
+function getUserFromSocket(socket) {
+  const session = socket.request.session;
+  if (session && session.userId) {
+    return {
+      id: session.userId,
+      username: session.username,
+      displayName: session.displayName
+    };
+  }
+  return null;
+}
 const PORT = process.env.PORT || 12000;
 
 // Initialize database
 initializeDatabase();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json());
+
+// Use the shared session middleware
+app.use(sessionMiddleware);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// Authentication routes
+app.post('/api/auth/register', validateRegistration, async (req, res) => {
+  try {
+    const { username, email, password, displayName } = req.body;
+    
+    // Check if user already exists
+    const existingUser = userRepository.findUserByUsername(username);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+    
+    if (email) {
+      const existingEmail = userRepository.findUserByEmail(email);
+      if (existingEmail) {
+        return res.status(400).json({ error: 'Email already exists' });
+      }
+    }
+    
+    // Create user
+    const userId = userRepository.createUser({
+      username,
+      email,
+      password,
+      displayName
+    });
+    
+    // Create session
+    req.session.userId = userId;
+    req.session.username = username;
+    req.session.displayName = displayName || username;
+    
+    // Update last login
+    userRepository.updateLastLogin(userId);
+    
+    res.json({
+      success: true,
+      user: {
+        id: userId,
+        username,
+        displayName: displayName || username,
+        email
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: error.message || 'Registration failed' });
+  }
+});
+
+app.post('/api/auth/login', validateLogin, async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    // Find user
+    const user = userRepository.findUserByUsername(username);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+    
+    // Verify password
+    if (!userRepository.verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+    
+    // Create session
+    req.session.userId = user.id;
+    req.session.username = user.username;
+    req.session.displayName = user.display_name;
+    
+    // Update last login
+    userRepository.updateLastLogin(user.id);
+    
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        displayName: user.display_name,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('Logout error:', err);
+      return res.status(500).json({ error: 'Logout failed' });
+    }
+    res.json({ success: true });
+  });
+});
+
+app.get('/api/auth/me', optionalAuth, (req, res) => {
+  if (!req.user) {
+    return res.json({ user: null });
+  }
+  
+  try {
+    const user = userRepository.findUserById(req.user.id);
+    if (!user) {
+      return res.json({ user: null });
+    }
+    
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        displayName: user.display_name,
+        email: user.email,
+        createdAt: user.created_at,
+        lastLoginAt: user.last_login_at
+      }
+    });
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({ error: 'Failed to get user info' });
+  }
+});
+
+// User statistics and profile routes
+app.get('/api/user/stats', requireAuth, (req, res) => {
+  try {
+    const stats = userRepository.getUserStats(req.user.id);
+    res.json({ stats });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({ error: 'Failed to get user statistics' });
+  }
+});
+
+app.get('/api/user/games', requireAuth, (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit) : 10;
+    const games = userRepository.getUserGameHistory(req.user.id, limit);
+    res.json({ games });
+  } catch (error) {
+    console.error('Get user games error:', error);
+    res.status(500).json({ error: 'Failed to get user game history' });
+  }
+});
+
+app.put('/api/user/profile', requireAuth, (req, res) => {
+  try {
+    const { displayName, email } = req.body;
+    
+    userRepository.updateUserProfile(req.user.id, {
+      displayName,
+      email
+    });
+    
+    // Update session
+    if (displayName) {
+      req.session.displayName = displayName;
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update profile' });
+  }
 });
 
 // Game history endpoints
@@ -221,12 +435,15 @@ io.on('connection', (socket) => {
   socket.on('create-room', (data) => {
     const { roomName, playerName } = data;
     const room = createRoom(roomName);
+    const user = getUserFromSocket(socket);
     
     // Add player to room
     const player = {
       id: socket.id,
-      name: playerName || 'Player 1',
-      symbol: 'X' // First player is always X
+      name: playerName || (user ? (user.displayName || user.username) : 'Player 1'),
+      symbol: 'X', // First player is always X
+      userId: user ? user.id : null,
+      username: user ? user.username : null
     };
     
     room.players.push(player);
@@ -247,6 +464,7 @@ io.on('connection', (socket) => {
   socket.on('join-room', (data) => {
     const { roomCode, playerName } = data;
     const room = rooms.get(roomCode);
+    const user = getUserFromSocket(socket);
     
     if (!room) {
       socket.emit('error', { message: 'Room not found' });
@@ -261,8 +479,10 @@ io.on('connection', (socket) => {
     // Add player to room
     const player = {
       id: socket.id,
-      name: playerName || 'Player 2',
-      symbol: 'O' // Second player is always O
+      name: playerName || (user ? (user.displayName || user.username) : 'Player 2'),
+      symbol: 'O', // Second player is always O
+      userId: user ? user.id : null,
+      username: user ? user.username : null
     };
     
     room.players.push(player);
@@ -345,13 +565,49 @@ io.on('connection', (socket) => {
     if (winner || isDraw) {
       try {
         // Save the completed game
+        const playerX = room.players.find(p => p.symbol === 'X');
+        const playerO = room.players.find(p => p.symbol === 'O');
+        
         gameId = gameRepository.saveGame({
           gameMode: 'online',
-          playerX: room.players.find(p => p.symbol === 'X')?.name || 'Player X',
-          playerO: room.players.find(p => p.symbol === 'O')?.name || 'Player O',
+          playerX: playerX?.name || 'Player X',
+          playerO: playerO?.name || 'Player O',
+          playerXUserId: playerX?.userId || null,
+          playerOUserId: playerO?.userId || null,
           winner: winner || null,
           isDraw: isDraw
         });
+        
+        // Update user statistics for both players if they're authenticated
+        if (gameId) {
+          const userRepository = require('./repositories/userRepository');
+          
+          if (playerX?.userId) {
+            try {
+              userRepository.updateUserStats(playerX.userId, {
+                gameMode: 'online',
+                winner,
+                isDraw,
+                userSymbol: 'X'
+              });
+            } catch (error) {
+              console.error('Error updating player X stats:', error);
+            }
+          }
+          
+          if (playerO?.userId) {
+            try {
+              userRepository.updateUserStats(playerO.userId, {
+                gameMode: 'online',
+                winner,
+                isDraw,
+                userSymbol: 'O'
+              });
+            } catch (error) {
+              console.error('Error updating player O stats:', error);
+            }
+          }
+        }
         
         // Save all moves if we have a game ID
         if (gameId) {
@@ -452,7 +708,7 @@ io.on('connection', (socket) => {
 });
 
 // API endpoint for AI move
-app.post('/api/ai-move', (req, res) => {
+app.post('/api/ai-move', optionalAuth, (req, res) => {
   const { squares, difficulty } = req.body;
   
   // Validate request body
@@ -483,7 +739,7 @@ app.post('/api/ai-move', (req, res) => {
 });
 
 // API endpoint for making a move
-app.post('/api/make-move', (req, res) => {
+app.post('/api/make-move', optionalAuth, (req, res) => {
   const { squares, index, player, gameMode, moveNumber } = req.body;
   
   // Validate request body
@@ -519,11 +775,28 @@ app.post('/api/make-move', (req, res) => {
       // Save the completed game
       gameId = gameRepository.saveGame({
         gameMode,
-        playerX: 'Player 1', // In a real app, this would be the actual player name
+        playerX: req.user ? req.user.displayName || req.user.username : 'Player 1',
         playerO: gameMode === 'easy' || gameMode === 'hard' ? 'AI' : 'Player 2',
+        playerXUserId: req.user ? req.user.id : null,
+        playerOUserId: null, // AI or anonymous player
         winner: winner || null,
         isDraw: isDraw
       });
+      
+      // Update user statistics if user is authenticated
+      if (req.user && gameId) {
+        try {
+          const userRepository = require('./repositories/userRepository');
+          userRepository.updateUserStats(req.user.id, {
+            gameMode,
+            winner,
+            isDraw,
+            userSymbol: 'X' // User is always X in single player
+          });
+        } catch (error) {
+          console.error('Error updating user stats:', error);
+        }
+      }
       
       // If we have move history, save all moves
       if (moveNumber !== undefined && gameId) {

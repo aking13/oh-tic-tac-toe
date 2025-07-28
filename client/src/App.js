@@ -47,11 +47,20 @@ const GameModeSelector = ({ gameMode, onModeChange }) => {
         <label className="mode-option">
           <input
             type="radio"
-            value="ai"
-            checked={gameMode === 'ai'}
+            value="easy"
+            checked={gameMode === 'easy'}
             onChange={(e) => onModeChange(e.target.value)}
           />
-          Human vs AI
+          Easy AI
+        </label>
+        <label className="mode-option">
+          <input
+            type="radio"
+            value="hard"
+            checked={gameMode === 'hard'}
+            onChange={(e) => onModeChange(e.target.value)}
+          />
+          Hard AI
         </label>
       </div>
     </div>
@@ -85,7 +94,7 @@ const App = () => {
     }
     
     // In AI mode, prevent human from playing as O
-    if (gameMode === 'ai' && !xIsNext) {
+    if ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext) {
       return;
     }
     
@@ -95,6 +104,50 @@ const App = () => {
     // Update state
     setSquares(newSquares);
     setXIsNext(!xIsNext);
+  };
+
+  // Hard AI algorithm - plays optimally
+  const getHardAiMove = (squares) => {
+    // Check if AI can win
+    for (let i = 0; i < 9; i++) {
+      if (squares[i] === null) {
+        const testSquares = [...squares];
+        testSquares[i] = 'O';
+        if (calculateWinner(testSquares) === 'O') {
+          return i;
+        }
+      }
+    }
+    
+    // Check if AI needs to block player from winning
+    for (let i = 0; i < 9; i++) {
+      if (squares[i] === null) {
+        const testSquares = [...squares];
+        testSquares[i] = 'X';
+        if (calculateWinner(testSquares) === 'X') {
+          return i;
+        }
+      }
+    }
+    
+    // Strategic moves in order of preference
+    const strategicMoves = [
+      4, // Center
+      0, 2, 6, 8, // Corners
+      1, 3, 5, 7  // Edges
+    ];
+    
+    for (let move of strategicMoves) {
+      if (squares[move] === null) {
+        return move;
+      }
+    }
+    
+    // Fallback to random (shouldn't happen)
+    const emptySquares = squares
+      .map((square, index) => square === null ? index : null)
+      .filter(val => val !== null);
+    return emptySquares[Math.floor(Math.random() * emptySquares.length)];
   };
 
   // AI move logic
@@ -108,9 +161,15 @@ const App = () => {
       return;
     }
     
-    // Pick a random empty square
-    const randomIndex = Math.floor(Math.random() * emptySquares.length);
-    const aiMove = emptySquares[randomIndex];
+    // Choose move based on difficulty
+    let aiMove;
+    if (gameMode === 'hard') {
+      aiMove = getHardAiMove(squares);
+    } else {
+      // Easy AI - random move
+      const randomIndex = Math.floor(Math.random() * emptySquares.length);
+      aiMove = emptySquares[randomIndex];
+    }
     
     // Set AI thinking state
     setAiThinking(true);
@@ -129,7 +188,7 @@ const App = () => {
 
   // Effect to trigger AI moves
   useEffect(() => {
-    if (gameMode === 'ai' && !xIsNext && !calculateWinner(squares) && !aiThinking) {
+    if ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext && !calculateWinner(squares) && !aiThinking) {
       // Check if there are empty squares
       if (squares.some(square => square === null)) {
         makeAiMove();
@@ -156,7 +215,7 @@ const App = () => {
   // Determine status message
   let status;
   if (winner) {
-    if (gameMode === 'ai') {
+    if (gameMode === 'easy' || gameMode === 'hard') {
       status = winner === 'X' ? 'You Win!' : 'AI Wins!';
     } else {
       status = `Winner: ${winner}`;
@@ -166,7 +225,7 @@ const App = () => {
   } else if (aiThinking) {
     status = 'AI Thinking...';
   } else {
-    if (gameMode === 'ai') {
+    if (gameMode === 'easy' || gameMode === 'hard') {
       status = xIsNext ? 'Your Turn (X)' : 'AI Turn (O)';
     } else {
       status = `Next player: ${xIsNext ? 'X' : 'O'}`;
@@ -181,7 +240,7 @@ const App = () => {
       <Board 
         squares={squares} 
         onClick={handleClick} 
-        disabled={aiThinking || (gameMode === 'ai' && !xIsNext)}
+        disabled={aiThinking || ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext)}
       />
       <button className="reset-button" onClick={resetGame}>
         Reset Game

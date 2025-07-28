@@ -367,6 +367,27 @@ const App = () => {
       return;
     }
     
+    // Handle local human vs human mode without server calls
+    if (gameMode === 'human') {
+      // Make the move locally
+      newSquares[i] = xIsNext ? 'X' : 'O';
+      setSquares(newSquares);
+      setXIsNext(!xIsNext);
+      setMoveCount(moveCount + 1);
+      
+      // Check if game is complete
+      const winner = calculateWinner(newSquares);
+      const isDraw = !winner && newSquares.every(square => square !== null);
+      
+      if (winner || isDraw) {
+        // Game is complete - optionally save to server for history
+        // For now, we'll keep it purely local
+      }
+      
+      return;
+    }
+    
+    // Handle AI modes with server calls
     try {
       setIsLoading(true);
       setError(null);

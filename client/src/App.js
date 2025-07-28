@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
 
+// API URL - adjust if needed
+const API_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:12000/api' 
+  : '/api';
+
 // Square component for each cell in the grid
 const Square = ({ value, onClick, disabled }) => {
   return (
@@ -77,11 +82,15 @@ const App = () => {
   const [gameMode, setGameMode] = useState('human');
   // Track if AI is thinking
   const [aiThinking, setAiThinking] = useState(false);
+  // Track API errors
+  const [error, setError] = useState(null);
+  // Track loading state
+  const [isLoading, setIsLoading] = useState(false);
 
   // Handle click on a square
-  const handleClick = (i) => {
-    // Don't allow clicks if AI is thinking
-    if (aiThinking) {
+  const handleClick = async (i) => {
+    // Don't allow clicks if AI is thinking or loading
+    if (aiThinking || isLoading) {
       return;
     }
     
@@ -89,7 +98,7 @@ const App = () => {
     const newSquares = [...squares];
     
     // Return early if there's a winner or the square is already filled
-    if (calculateWinner(newSquares) || newSquares[i]) {
+    if (newSquares[i]) {
       return;
     }
     
@@ -98,109 +107,125 @@ const App = () => {
       return;
     }
     
-    // Set the square to X or O based on whose turn it is
-    newSquares[i] = xIsNext ? 'X' : 'O';
-    
-    // Update state
-    setSquares(newSquares);
-    setXIsNext(!xIsNext);
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // Make API call to validate and make the move
+      const response = await fetch(`${API_URL}/make-move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          squares: newSquares,
+          index: i,
+          player: xIsNext ? 'X' : 'O'
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to make move');
+      }
+      
+      const data = await response.json();
+      
+      // Update state with validated move
+      setSquares(data.squares);
+      setXIsNext(!xIsNext);
+    } catch (err) {
+      setError(err.message);
+      console.error('Error making move:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Hard AI algorithm - plays optimally
-  const getHardAiMove = (squares) => {
-    // Check if AI can win
-    for (let i = 0; i < 9; i++) {
-      if (squares[i] === null) {
-        const testSquares = [...squares];
-        testSquares[i] = 'O';
-        if (calculateWinner(testSquares) === 'O') {
-          return i;
-        }
-      }
-    }
-    
-    // Check if AI needs to block player from winning
-    for (let i = 0; i < 9; i++) {
-      if (squares[i] === null) {
-        const testSquares = [...squares];
-        testSquares[i] = 'X';
-        if (calculateWinner(testSquares) === 'X') {
-          return i;
-        }
-      }
-    }
-    
-    // Strategic moves in order of preference
-    const strategicMoves = [
-      4, // Center
-      0, 2, 6, 8, // Corners
-      1, 3, 5, 7  // Edges
-    ];
-    
-    for (let move of strategicMoves) {
-      if (squares[move] === null) {
-        return move;
-      }
-    }
-    
-    // Fallback to random (shouldn't happen)
-    const emptySquares = squares
-      .map((square, index) => square === null ? index : null)
-      .filter(val => val !== null);
-    return emptySquares[Math.floor(Math.random() * emptySquares.length)];
-  };
-
-  // AI move logic
-  const makeAiMove = () => {
-    const newSquares = [...squares];
-    const emptySquares = newSquares
-      .map((square, index) => square === null ? index : null)
-      .filter(val => val !== null);
-    
-    if (emptySquares.length === 0) {
+  // Make AI move
+  const makeAiMove = async () => {
+    if (aiThinking || isLoading) {
       return;
     }
     
-    // Choose move based on difficulty
-    let aiMove;
-    if (gameMode === 'hard') {
-      aiMove = getHardAiMove(squares);
-    } else {
-      // Easy AI - random move
-      const randomIndex = Math.floor(Math.random() * emptySquares.length);
-      aiMove = emptySquares[randomIndex];
-    }
-    
-    // Set AI thinking state
-    setAiThinking(true);
-    
-    // Random delay between 300-1000ms
-    const delay = Math.random() * 700 + 300;
-    
-    setTimeout(() => {
-      const updatedSquares = [...squares];
-      updatedSquares[aiMove] = 'O';
-      setSquares(updatedSquares);
+    try {
+      setAiThinking(true);
+      setIsLoading(true);
+      setError(null);
+      
+      // Random delay between 300-1000ms to simulate "thinking"
+      const delay = Math.random() * 700 + 300;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Make API call to get AI move
+      const response = await fetch(`${API_URL}/ai-move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          squares,
+          difficulty: gameMode
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to get AI move');
+      }
+      
+      const data = await response.json();
+      
+      // Make the AI move
+      const aiMoveResponse = await fetch(`${API_URL}/make-move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          squares,
+          index: data.move,
+          player: 'O'
+        }),
+      });
+      
+      if (!aiMoveResponse.ok) {
+        const errorData = await aiMoveResponse.json();
+        throw new Error(errorData.error || 'Failed to make AI move');
+      }
+      
+      const moveData = await aiMoveResponse.json();
+      
+      // Update state with AI move
+      setSquares(moveData.squares);
       setXIsNext(true);
+    } catch (err) {
+      setError(err.message);
+      console.error('Error making AI move:', err);
+    } finally {
       setAiThinking(false);
-    }, delay);
+      setIsLoading(false);
+    }
   };
 
   // Effect to trigger AI moves
   useEffect(() => {
-    if ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext && !calculateWinner(squares) && !aiThinking) {
-      // Check if there are empty squares
-      if (squares.some(square => square === null)) {
+    if ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext && !aiThinking && !isLoading) {
+      // Check if there are empty squares and no winner
+      const winner = calculateWinner(squares);
+      if (!winner && squares.includes(null)) {
         makeAiMove();
       }
     }
-  }, [gameMode, xIsNext, squares, aiThinking]);
+  }, [gameMode, xIsNext, squares, aiThinking, isLoading]);
 
   // Reset the game
   const resetGame = () => {
     setSquares(Array(9).fill(null));
     setXIsNext(true);
     setAiThinking(false);
+    setError(null);
+    setIsLoading(false);
   };
 
   // Handle game mode change
@@ -209,12 +234,40 @@ const App = () => {
     resetGame();
   };
 
+  // Calculate the winner (client-side for UI purposes)
+  const calculateWinner = (squares) => {
+    // All possible winning combinations
+    const lines = [
+      [0, 1, 2], // top row
+      [3, 4, 5], // middle row
+      [6, 7, 8], // bottom row
+      [0, 3, 6], // left column
+      [1, 4, 7], // middle column
+      [2, 5, 8], // right column
+      [0, 4, 8], // diagonal top-left to bottom-right
+      [2, 4, 6]  // diagonal top-right to bottom-left
+    ];
+    
+    // Check each winning combination
+    for (let i = 0; i < lines.length; i++) {
+      const [a, b, c] = lines[i];
+      // If all three squares in a line have the same value (and not null)
+      if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
+        return squares[a]; // Return the winner (X or O)
+      }
+    }
+    
+    return null; // No winner
+  };
+
   // Calculate the winner
   const winner = calculateWinner(squares);
   
   // Determine status message
   let status;
-  if (winner) {
+  if (error) {
+    status = `Error: ${error}`;
+  } else if (winner) {
     if (gameMode === 'easy' || gameMode === 'hard') {
       status = winner === 'X' ? 'You Win!' : 'AI Wins!';
     } else {
@@ -222,8 +275,8 @@ const App = () => {
     }
   } else if (squares.every(square => square !== null)) {
     status = 'Draw!';
-  } else if (aiThinking) {
-    status = 'AI Thinking...';
+  } else if (aiThinking || isLoading) {
+    status = 'Thinking...';
   } else {
     if (gameMode === 'easy' || gameMode === 'hard') {
       status = xIsNext ? 'Your Turn (X)' : 'AI Turn (O)';
@@ -236,11 +289,11 @@ const App = () => {
     <div className="game">
       <h1>Tic Tac Toe</h1>
       <GameModeSelector gameMode={gameMode} onModeChange={handleModeChange} />
-      <div className="status">{status}</div>
+      <div className={`status ${error ? 'error' : ''}`}>{status}</div>
       <Board 
         squares={squares} 
         onClick={handleClick} 
-        disabled={aiThinking || ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext)}
+        disabled={aiThinking || isLoading || ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext)}
       />
       <button className="reset-button" onClick={resetGame}>
         Reset Game
@@ -248,31 +301,5 @@ const App = () => {
     </div>
   );
 };
-
-// Helper function to calculate winner
-function calculateWinner(squares) {
-  // All possible winning combinations
-  const lines = [
-    [0, 1, 2], // top row
-    [3, 4, 5], // middle row
-    [6, 7, 8], // bottom row
-    [0, 3, 6], // left column
-    [1, 4, 7], // middle column
-    [2, 5, 8], // right column
-    [0, 4, 8], // diagonal top-left to bottom-right
-    [2, 4, 6]  // diagonal top-right to bottom-left
-  ];
-  
-  // Check each winning combination
-  for (let i = 0; i < lines.length; i++) {
-    const [a, b, c] = lines[i];
-    // If all three squares in a line have the same value (and not null)
-    if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
-      return squares[a]; // Return the winner (X or O)
-    }
-  }
-  
-  return null; // No winner
-}
 
 export default App;

@@ -17,7 +17,7 @@ I knew I wanted to be able to hand over a public link to my work so my approach 
 I used Openhands CLI and Openhands Cloud ui. My goal there was to dogfood as much as possible so I can come into a review interview with what I hope are genuine and valuable thoughts and feedback not only on my approach but also the product and any bugs I may run into or delightful moments.
 
 **Anything that didn’t go as planned or you'd improve with more time**
-If I had more time I'd add fun features like user auth, Elo scores, and other things like that. Also I realized with 1/3 time left I could run multiple OH workstreams in parallel, so I'd try to do that even more in the future if I had more time (although there's different some management to be hand with 'live' kicking off workstreams to attempt to minimize merge conflicts)
+If I had more time I'd add fun features like user auth, Elo scores, and other things like that. Also I realized with 1/3 time left I could run multiple OH workstreams in parallel, so I'd try to do that even more in the future if I had more time (although there's definitely some mental management to be had with 'live' kicking off code workstreams under pressure to be productive but also attempt to minimize merge conflicts)
 
 **Development Video**
 https://www.loom.com/share/c6dcb5f5a86e43389bd010c34e159fac?sid=bf188116-c252-4d4d-aed4-4deba7d7b7c8

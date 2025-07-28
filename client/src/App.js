@@ -12,12 +12,14 @@ const SOCKET_URL = window.location.hostname === 'localhost'
   : window.location.origin;
 
 // Square component for each cell in the grid
-const Square = ({ value, onClick, disabled }) => {
+const Square = ({ value, onClick, disabled, index }) => {
   return (
     <button 
       className="square" 
       onClick={onClick}
       disabled={disabled}
+      data-value={value}
+      data-index={index}
     >
       {value}
     </button>
@@ -33,7 +35,8 @@ const Board = ({ squares, onClick, disabled }) => {
           key={index} 
           value={value} 
           onClick={() => onClick(index)}
-          disabled={disabled && !value}
+          disabled={disabled || value !== null}
+          index={index}
         />
       ))}
     </div>
@@ -187,6 +190,32 @@ const RoomInfo = ({ roomCode, roomName, players, currentPlayer, onLeaveRoom, onC
       <button onClick={onLeaveRoom} className="leave-room-button">
         Leave Room
       </button>
+    </div>
+  );
+};
+
+// Turn Indicator component
+const TurnIndicator = ({ xIsNext, gameMode, currentPlayer }) => {
+  if (gameMode === 'online' && currentPlayer) {
+    return (
+      <div className="turn-indicator">
+        <div className={`player-badge ${currentPlayer.symbol === 'X' ? 'player-x' : 'player-o'} ${
+          (xIsNext && currentPlayer.symbol === 'X') || (!xIsNext && currentPlayer.symbol === 'O') ? 'active' : ''
+        }`}>
+          {currentPlayer.symbol} - You
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="turn-indicator">
+      <div className={`player-badge player-x ${xIsNext ? 'active' : ''}`}>
+        X {gameMode === 'easy' || gameMode === 'hard' ? '(You)' : ''}
+      </div>
+      <div className={`player-badge player-o ${!xIsNext ? 'active' : ''}`}>
+        O {gameMode === 'easy' || gameMode === 'hard' ? '(AI)' : ''}
+      </div>
     </div>
   );
 };
@@ -585,7 +614,11 @@ const App = () => {
       const [a, b, c] = lines[i];
       // If all three squares in a line have the same value (and not null)
       if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
-        return squares[a]; // Return the winner (X or O)
+        return {
+          winner: squares[a], // Return the winner (X or O)
+          line: [a, b, c],
+          lineIndex: i
+        };
       }
     }
     
@@ -593,7 +626,8 @@ const App = () => {
   };
 
   // Calculate the winner
-  const winner = calculateWinner(squares);
+  const winnerInfo = calculateWinner(squares);
+  const winner = winnerInfo ? winnerInfo.winner : null;
   
   // Determine status message
   let status;
@@ -649,7 +683,8 @@ const App = () => {
       
       {(gameMode !== 'online' || (gameMode === 'online' && isInRoom)) && (
         <>
-          <div className={`status ${error ? 'error' : ''}`}>{status}</div>
+          <TurnIndicator xIsNext={xIsNext} gameMode={gameMode} currentPlayer={currentPlayer} />
+          <div className={`status ${error ? 'error' : ''} ${winner ? 'winner' : ''}`}>{status}</div>
           <Board 
             squares={squares} 
             onClick={handleClick} 

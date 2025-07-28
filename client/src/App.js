@@ -12,12 +12,14 @@ const SOCKET_URL = window.location.hostname === 'localhost'
   : window.location.origin;
 
 // Square component for each cell in the grid
-const Square = ({ value, onClick, disabled }) => {
+const Square = ({ value, onClick, disabled, index }) => {
   return (
     <button 
       className="square" 
       onClick={onClick}
       disabled={disabled}
+      data-value={value}
+      data-index={index}
     >
       {value}
     </button>
@@ -33,7 +35,8 @@ const Board = ({ squares, onClick, disabled }) => {
           key={index} 
           value={value} 
           onClick={() => onClick(index)}
-          disabled={disabled && !value}
+          disabled={disabled || value !== null}
+          index={index}
         />
       ))}
     </div>
@@ -191,6 +194,52 @@ const RoomInfo = ({ roomCode, roomName, players, currentPlayer, onLeaveRoom, onC
   );
 };
 
+// Score Tracker component
+const ScoreTracker = ({ scores }) => {
+  return (
+    <div className="score-tracker">
+      <div className="score-item">
+        <div className="score-label">X Wins</div>
+        <div className="score-value">{scores.X}</div>
+      </div>
+      <div className="score-item">
+        <div className="score-label">Draws</div>
+        <div className="score-value">{scores.draws}</div>
+      </div>
+      <div className="score-item">
+        <div className="score-label">O Wins</div>
+        <div className="score-value">{scores.O}</div>
+      </div>
+    </div>
+  );
+};
+
+// Turn Indicator component
+const TurnIndicator = ({ xIsNext, gameMode, currentPlayer }) => {
+  if (gameMode === 'online' && currentPlayer) {
+    return (
+      <div className="turn-indicator">
+        <div className={`player-badge ${currentPlayer.symbol === 'X' ? 'player-x' : 'player-o'} ${
+          (xIsNext && currentPlayer.symbol === 'X') || (!xIsNext && currentPlayer.symbol === 'O') ? 'active' : ''
+        }`}>
+          {currentPlayer.symbol} - You
+        </div>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="turn-indicator">
+      <div className={`player-badge player-x ${xIsNext ? 'active' : ''}`}>
+        X {gameMode === 'easy' || gameMode === 'hard' ? '(You)' : ''}
+      </div>
+      <div className={`player-badge player-o ${!xIsNext ? 'active' : ''}`}>
+        O {gameMode === 'easy' || gameMode === 'hard' ? '(AI)' : ''}
+      </div>
+    </div>
+  );
+};
+
 // Game Mode Selector component
 const GameModeSelector = ({ gameMode, onModeChange }) => {
   return (
@@ -252,6 +301,8 @@ const App = () => {
   const [error, setError] = useState(null);
   // Track loading state
   const [isLoading, setIsLoading] = useState(false);
+  // Track scores
+  const [scores, setScores] = useState({ X: 0, O: 0, draws: 0 });
   
   // Online multiplayer state
   const [socket, setSocket] = useState(null);
@@ -264,8 +315,11 @@ const App = () => {
 
   // Handle click on a square
   const handleClick = async (i) => {
-    // Don't allow clicks if AI is thinking or loading
-    if (aiThinking || isLoading) {
+    // Check if there's already a winner
+    const currentWinner = calculateWinner(squares);
+    
+    // Don't allow clicks if game is over, AI is thinking or loading
+    if (currentWinner || squares.every(square => square !== null) || aiThinking || isLoading) {
       return;
     }
     
@@ -551,6 +605,7 @@ const App = () => {
       setAiThinking(false);
       setError(null);
       setIsLoading(false);
+      setScoreUpdated(false);
     }
   };
 
@@ -585,7 +640,11 @@ const App = () => {
       const [a, b, c] = lines[i];
       // If all three squares in a line have the same value (and not null)
       if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
-        return squares[a]; // Return the winner (X or O)
+        return {
+          winner: squares[a], // Return the winner (X or O)
+          line: [a, b, c],
+          lineIndex: i
+        };
       }
     }
     
@@ -593,7 +652,24 @@ const App = () => {
   };
 
   // Calculate the winner
-  const winner = calculateWinner(squares);
+  const winnerInfo = calculateWinner(squares);
+  const winner = winnerInfo ? winnerInfo.winner : null;
+  
+  // Track if score has been updated for current game
+  const [scoreUpdated, setScoreUpdated] = useState(false);
+  
+  // Update scores when game ends
+  useEffect(() => {
+    if (!scoreUpdated) {
+      if (winner) {
+        setScores(prev => ({ ...prev, [winner]: prev[winner] + 1 }));
+        setScoreUpdated(true);
+      } else if (squares.every(square => square !== null) && !winner) {
+        setScores(prev => ({ ...prev, draws: prev.draws + 1 }));
+        setScoreUpdated(true);
+      }
+    }
+  }, [winner, squares, scoreUpdated]);
   
   // Determine status message
   let status;
@@ -637,47 +713,62 @@ const App = () => {
   return (
     <div className="game">
       <h1>Tic Tac Toe</h1>
-      <GameModeSelector gameMode={gameMode} onModeChange={handleModeChange} />
       
-      {gameMode === 'online' && !isInRoom && (
-        <RoomSetup 
-          onCreateRoom={handleCreateRoom}
-          onJoinRoom={handleJoinRoom}
-          isLoading={isLoading}
-        />
-      )}
+      <div className="left-panel">
+        <GameModeSelector gameMode={gameMode} onModeChange={handleModeChange} />
+        {(gameMode !== 'online' || (gameMode === 'online' && isInRoom)) && (
+          <ScoreTracker scores={scores} />
+        )}
+      </div>
       
-      {(gameMode !== 'online' || (gameMode === 'online' && isInRoom)) && (
-        <>
-          <div className={`status ${error ? 'error' : ''}`}>{status}</div>
-          <Board 
-            squares={squares} 
-            onClick={handleClick} 
-            disabled={
-              aiThinking || 
-              isLoading || 
-              ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext) ||
-              (gameMode === 'online' && (!currentPlayer || players.length < 2 || 
-                (xIsNext && currentPlayer.symbol !== 'X') || 
-                (!xIsNext && currentPlayer.symbol !== 'O')))
-            }
+      <div className="game-content">
+        {gameMode === 'online' && !isInRoom && (
+          <RoomSetup 
+            onCreateRoom={handleCreateRoom}
+            onJoinRoom={handleJoinRoom}
+            isLoading={isLoading}
           />
-          <button className="reset-button" onClick={resetGame}>
-            {gameMode === 'online' ? 'Reset Game' : 'Reset Game'}
-          </button>
-        </>
-      )}
+        )}
+        
+        {(gameMode !== 'online' || (gameMode === 'online' && isInRoom)) && (
+          <>
+            <div className="game-status-bar">
+              <TurnIndicator xIsNext={xIsNext} gameMode={gameMode} currentPlayer={currentPlayer} />
+              <div className={`status ${error ? 'error' : ''} ${winner ? 'winner' : ''}`}>{status}</div>
+            </div>
+            <Board 
+              squares={squares} 
+              onClick={handleClick} 
+              disabled={
+                winner !== null ||
+                squares.every(square => square !== null) ||
+                aiThinking || 
+                isLoading || 
+                ((gameMode === 'easy' || gameMode === 'hard') && !xIsNext) ||
+                (gameMode === 'online' && (!currentPlayer || players.length < 2 || 
+                  (xIsNext && currentPlayer.symbol !== 'X') || 
+                  (!xIsNext && currentPlayer.symbol !== 'O')))
+              }
+            />
+            <button className="reset-button" onClick={resetGame}>
+              Reset Game
+            </button>
+          </>
+        )}
+      </div>
       
-      {gameMode === 'online' && isInRoom && (
-        <RoomInfo 
-          roomCode={roomCode}
-          roomName={roomName}
-          players={players}
-          currentPlayer={currentPlayer}
-          onLeaveRoom={handleLeaveRoom}
-          onCopyRoomCode={handleCopyRoomCode}
-        />
-      )}
+      <div className="right-panel">
+        {gameMode === 'online' && isInRoom && (
+          <RoomInfo 
+            roomCode={roomCode}
+            roomName={roomName}
+            players={players}
+            currentPlayer={currentPlayer}
+            onLeaveRoom={handleLeaveRoom}
+            onCopyRoomCode={handleCopyRoomCode}
+          />
+        )}
+      </div>
     </div>
   );
 };

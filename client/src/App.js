@@ -115,8 +115,8 @@ const App = () => {
     // Set AI thinking state
     setAiThinking(true);
     
-    // Random delay between 100-500ms
-    const delay = Math.random() * 400 + 100;
+    // Random delay between 300-1000ms
+    const delay = Math.random() * 700 + 300;
     
     setTimeout(() => {
       const updatedSquares = [...squares];

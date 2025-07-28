@@ -31,6 +31,13 @@ body {
   justify-content: center;
   align-items: center;
   cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.square:disabled {
+  cursor: not-allowed;
+  background-color: #f5f5f5;
+  opacity: 0.7;
 }
 
 .status {
@@ -51,4 +58,39 @@ body {
 
 .reset-button:hover {
   background-color: #45a049;
+}
+
+.game-mode-selector {
+  margin-bottom: 20px;
+}
+
+.game-mode-selector h3 {
+  margin: 0 0 10px 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.mode-options {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 5px;
+  transition: background-color 0.2s;
+}
+
+.mode-option:hover {
+  background-color: #f0f0f0;
+}
+
+.mode-option input[type="radio"] {
+  cursor: pointer;
 }

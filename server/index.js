@@ -1,8 +1,17 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const http = require('http');
+const socketIo = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 const PORT = process.env.PORT || 12000;
 
 // Middleware
@@ -123,6 +132,249 @@ function isValidMove(squares, index) {
   return true;
 }
 
+// Room management
+const rooms = new Map();
+
+// Generate a random room code
+function generateRoomCode() {
+  const adjectives = ['BLUE', 'RED', 'GREEN', 'GOLD', 'SILVER', 'PURPLE', 'ORANGE', 'PINK'];
+  const numbers = Math.floor(Math.random() * 100).toString().padStart(2, '0');
+  const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+  return `${adjective}${numbers}`;
+}
+
+// Create a new room
+function createRoom(roomName = null) {
+  const roomCode = generateRoomCode();
+  const room = {
+    code: roomCode,
+    name: roomName || `Room ${roomCode}`,
+    players: [],
+    gameState: {
+      squares: Array(9).fill(null),
+      xIsNext: true,
+      winner: null,
+      isDraw: false
+    },
+    createdAt: new Date(),
+    lastActivity: new Date()
+  };
+  
+  rooms.set(roomCode, room);
+  return room;
+}
+
+// Clean up inactive rooms (older than 1 hour)
+function cleanupRooms() {
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  for (const [code, room] of rooms.entries()) {
+    if (room.lastActivity < oneHourAgo) {
+      rooms.delete(code);
+    }
+  }
+}
+
+// Run cleanup every 10 minutes
+setInterval(cleanupRooms, 10 * 60 * 1000);
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  // Create a new room
+  socket.on('create-room', (data) => {
+    const { roomName, playerName } = data;
+    const room = createRoom(roomName);
+    
+    // Add player to room
+    const player = {
+      id: socket.id,
+      name: playerName || 'Player 1',
+      symbol: 'X' // First player is always X
+    };
+    
+    room.players.push(player);
+    socket.join(room.code);
+    
+    socket.emit('room-created', {
+      roomCode: room.code,
+      roomName: room.name,
+      player: player,
+      players: room.players,
+      gameState: room.gameState
+    });
+    
+    console.log(`Room ${room.code} created by ${player.name}`);
+  });
+
+  // Join an existing room
+  socket.on('join-room', (data) => {
+    const { roomCode, playerName } = data;
+    const room = rooms.get(roomCode);
+    
+    if (!room) {
+      socket.emit('error', { message: 'Room not found' });
+      return;
+    }
+    
+    if (room.players.length >= 2) {
+      socket.emit('error', { message: 'Room is full' });
+      return;
+    }
+    
+    // Add player to room
+    const player = {
+      id: socket.id,
+      name: playerName || 'Player 2',
+      symbol: 'O' // Second player is always O
+    };
+    
+    room.players.push(player);
+    room.lastActivity = new Date();
+    socket.join(room.code);
+    
+    // Notify both players
+    socket.emit('room-joined', {
+      roomCode: room.code,
+      roomName: room.name,
+      player: player,
+      players: room.players,
+      gameState: room.gameState
+    });
+    
+    socket.to(room.code).emit('player-joined', {
+      player: player,
+      players: room.players,
+      gameState: room.gameState
+    });
+    
+    console.log(`${player.name} joined room ${room.code}`);
+  });
+
+  // Make a move in a room
+  socket.on('make-move', (data) => {
+    const { roomCode, index } = data;
+    const room = rooms.get(roomCode);
+    
+    if (!room) {
+      socket.emit('error', { message: 'Room not found' });
+      return;
+    }
+    
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error', { message: 'You are not in this room' });
+      return;
+    }
+    
+    // Check if it's the player's turn
+    const expectedSymbol = room.gameState.xIsNext ? 'X' : 'O';
+    if (player.symbol !== expectedSymbol) {
+      socket.emit('error', { message: 'Not your turn' });
+      return;
+    }
+    
+    // Validate the move
+    if (!isValidMove(room.gameState.squares, index)) {
+      socket.emit('error', { message: 'Invalid move' });
+      return;
+    }
+    
+    // Make the move
+    const newSquares = [...room.gameState.squares];
+    newSquares[index] = player.symbol;
+    
+    // Update game state
+    const winner = calculateWinner(newSquares);
+    const isDraw = !winner && !newSquares.includes(null);
+    
+    room.gameState = {
+      squares: newSquares,
+      xIsNext: !room.gameState.xIsNext,
+      winner,
+      isDraw
+    };
+    
+    room.lastActivity = new Date();
+    
+    // Broadcast the updated game state to all players in the room
+    io.to(room.code).emit('game-updated', {
+      gameState: room.gameState,
+      lastMove: {
+        player: player.name,
+        symbol: player.symbol,
+        index
+      }
+    });
+    
+    console.log(`Move made in room ${room.code} by ${player.name}`);
+  });
+
+  // Reset game in a room
+  socket.on('reset-game', (data) => {
+    const { roomCode } = data;
+    const room = rooms.get(roomCode);
+    
+    if (!room) {
+      socket.emit('error', { message: 'Room not found' });
+      return;
+    }
+    
+    const player = room.players.find(p => p.id === socket.id);
+    if (!player) {
+      socket.emit('error', { message: 'You are not in this room' });
+      return;
+    }
+    
+    // Reset game state
+    room.gameState = {
+      squares: Array(9).fill(null),
+      xIsNext: true,
+      winner: null,
+      isDraw: false
+    };
+    
+    room.lastActivity = new Date();
+    
+    // Broadcast reset to all players in the room
+    io.to(room.code).emit('game-reset', {
+      gameState: room.gameState,
+      resetBy: player.name
+    });
+    
+    console.log(`Game reset in room ${room.code} by ${player.name}`);
+  });
+
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+    
+    // Find and remove player from any rooms
+    for (const [code, room] of rooms.entries()) {
+      const playerIndex = room.players.findIndex(p => p.id === socket.id);
+      if (playerIndex !== -1) {
+        const player = room.players[playerIndex];
+        room.players.splice(playerIndex, 1);
+        
+        // Notify remaining players
+        socket.to(room.code).emit('player-left', {
+          player: player,
+          playersRemaining: room.players.length
+        });
+        
+        // Remove empty rooms
+        if (room.players.length === 0) {
+          rooms.delete(code);
+          console.log(`Room ${code} deleted (empty)`);
+        }
+        
+        console.log(`${player.name} left room ${code}`);
+        break;
+      }
+    }
+  });
+});
+
 // API endpoint for AI move
 app.post('/api/ai-move', (req, res) => {
   const { squares, difficulty } = req.body;
@@ -200,6 +452,6 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/public/index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });
